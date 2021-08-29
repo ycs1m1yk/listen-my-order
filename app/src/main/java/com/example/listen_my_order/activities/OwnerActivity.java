@@ -1,5 +1,6 @@
 package com.example.listen_my_order.activities;
 
+import androidx.appcompat.app.ActionBar;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -17,12 +18,17 @@ import android.widget.ImageView;
 import android.widget.Toast;
 
 import com.example.listen_my_order.R;
+import com.example.listen_my_order.adapters.ExportMenuAdapter;
 
 import java.util.ArrayList;
+
+import euphony.lib.receiver.EuRxManager;
+import euphony.lib.transmitter.EuTxManager;
 
 public class OwnerActivity extends AppCompatActivity {
 
     // Components
+    private ActionBar appbar;
     private Button btn_export_menu, btn_add;
     private ImageView iv_back;
     private OnClickListener onClickListener;
@@ -39,6 +45,10 @@ public class OwnerActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_owner);
         onClickListener = new OnClickListener();
+
+        // Set ActionBar
+        appbar = getSupportActionBar();
+        appbar.setTitle("Set Menu list");
 
         // Set components
         this.btn_export_menu = (Button)findViewById(R.id.btn_export_menu);
