@@ -1,64 +1,108 @@
 package com.example.listen_my_order.activities;
 
+import androidx.appcompat.app.ActionBar;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.lifecycle.Observer;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import android.app.Dialog;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
+import android.os.AsyncTask;
 import android.os.Bundle;
-import android.text.InputFilter;
 import android.view.View;
-import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.Toast;
 
 import com.example.listen_my_order.R;
+import com.example.listen_my_order.adapters.ExportMenuAdapter;
+import com.example.listen_my_order.properties.Menu.DAO.MenuDAO;
+import com.example.listen_my_order.properties.Menu.Database.MenuDatabase;
+import com.example.listen_my_order.properties.Menu.Entity.Menu;
 
 import java.util.ArrayList;
+import java.util.List;
+
+import euphony.lib.receiver.EuRxManager;
+import euphony.lib.transmitter.EuTxManager;
 
 public class OwnerActivity extends AppCompatActivity {
+    // Properties
+    boolean speakOn = false;
 
     // Components
+    private ActionBar appbar;
     private Button btn_export_menu, btn_add;
     private ImageView iv_back;
-    private OnClickListener onClickListener;
+    private EditText storeName;
+    private OnClickListener onClickListener = new OnClickListener();
+    private EuTxManager euTxManager = new EuTxManager();
     // For menuList
     private RecyclerView rv_menu;
     private LinearLayoutManager linearLayoutManager;
-    private ArrayList<MenuData> menuList;
-    private MenuAdapter menuAdapter;
+    private ExportMenuAdapter exportMenuAdapter;
+    private ArrayList<MenuData> menuList = new ArrayList<MenuData>();
     // Dialogs
     private Dialog dialog_new_menu;
+
+    //Room Database
+    private MenuDatabase menuDatabase;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_owner);
-        onClickListener = new OnClickListener();
+
+        // Set ActionBar
+        appbar = getSupportActionBar();
+        appbar.setTitle("Set Menu list");
 
         // Set components
         this.btn_export_menu = (Button)findViewById(R.id.btn_export_menu);
         this.btn_add = (Button)findViewById(R.id.btn_add);
         this.iv_back = (ImageView)findViewById(R.id.iv_back);
+        this.storeName = (EditText)findViewById(R.id.et_store_name);
         this.rv_menu = (RecyclerView)findViewById(R.id.rv_menu);
 
         // Set recyclerView
         this.linearLayoutManager = new LinearLayoutManager(this);
         this.rv_menu.setLayoutManager(this.linearLayoutManager);
-        this.menuList = new ArrayList<MenuData>();
 
         // Set adapter
-        this.menuAdapter = new MenuAdapter(this.menuList);
-        this.rv_menu.setAdapter(this.menuAdapter);
+        this.exportMenuAdapter = new ExportMenuAdapter(this.menuList);
+        this.rv_menu.setAdapter(this.exportMenuAdapter);
 
         // Set onClickListeners
         this.btn_export_menu.setOnClickListener(this.onClickListener);
         this.btn_add.setOnClickListener(this.onClickListener);
         this.iv_back.setOnClickListener(this.onClickListener);
+
+        //Set Room Database
+        menuDatabase = MenuDatabase.getAppDatabase(OwnerActivity.this);
+
+        menuDatabase.menuDAO().loadAllMenus().observe(this, new Observer<List<Menu>>() {
+            @Override
+            public void onChanged(List<Menu> menus) {
+                if (menuList.size() == 0) {
+                    for (int i = 0; i < menus.size(); i++) {
+                        float price = Float.parseFloat(menus.get(i).getPrice());
+                        MenuData menuData = new MenuData((menus.get(i).getMenuName()), (menus.get(i).getDescription()), price);
+                        menuList.add(i, menuData);
+                    }
+                }
+                else {
+                    float price = Float.parseFloat(menus.get(menus.size() - 1).getPrice());
+                    MenuData menuData = new MenuData((menus.get(menus.size() - 1).getMenuName()), (menus.get(menus.size() - 1).getDescription()), price);
+                    menuList.add(menuData);
+                }
+
+                exportMenuAdapter.notifyDataSetChanged();
+
+            }
+        });
     }
 
     // OnclickListener
@@ -88,11 +132,6 @@ public class OwnerActivity extends AppCompatActivity {
         this.dialog_new_menu.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         this.dialog_new_menu.setContentView(R.layout.dialog_new_menu);
 
-//        WindowManager.LayoutParams lp = new WindowManager.LayoutParams();
-//        lp.copyFrom(dialog_new_menu.getWindow().getAttributes());
-//        lp.width = WindowManager.LayoutParams.MATCH_PARENT;
-//        this.dialog_new_menu.getWindow().setAttributes(lp);
-
         // Components
         EditText et_name = (EditText) dialog_new_menu.findViewById(R.id.et_name);
         EditText et_content = (EditText) dialog_new_menu.findViewById(R.id.et_content);
@@ -121,8 +160,9 @@ public class OwnerActivity extends AppCompatActivity {
 
                 // Add new menu in rv_menu
                 MenuData menuData = new MenuData(name, content, price);
-                menuList.add(menuData);
-                menuAdapter.notifyDataSetChanged();
+                //menuList.add(menuData);
+                new InsertAsyncTask(menuDatabase.menuDAO()).execute(new Menu(menuData.getName(), Float.toString(menuData.getPrice()), menuData.getContent()));
+                //exportMenuAdapter.notifyDataSetChanged();
 
                 dialog_new_menu.dismiss();
             }
@@ -138,6 +178,39 @@ public class OwnerActivity extends AppCompatActivity {
     }
 
     private void exportMenu(){
+        if(speakOn){
+            euTxManager.stop();
+            btn_export_menu.setText("Export\nMenu");
+            speakOn = false;
+        }else{
+            // To generate acoustic data
+            String message = "";
+            message += storeName.getText().toString();
+            int index = 0;
+            for(MenuData menuData : menuList){
+                message += "/n" + Integer.toString(index) + " " + menuData.getName() + " " + menuData.getContent() + " " + Float.toString(menuData.getPrice());
+                index++;
+            }
+            euTxManager.euInitTransmit(message);
+            euTxManager.process(-1);
+            System.out.println(message);
+            btn_export_menu.setText("Exporting\nMenu...");
+            speakOn = true;
+        }
+    }
 
+    //Function for async tasks
+    public static class InsertAsyncTask extends AsyncTask<Menu, Void, Void> {
+        private MenuDAO menuDAO;
+
+        public InsertAsyncTask(MenuDAO m) {
+            this.menuDAO = m;
+        }
+
+        @Override
+        protected Void doInBackground(Menu... menus) {
+            menuDAO.insertMenu(menus[0]);
+            return null;
+        }
     }
 }
